@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Flappy Bird</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://sad.adsgram.ai/js/sad.min.js"></script>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+html,body{margin:0;height:100%;overflow:hidden;background:#1b1446;color:#fff;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;touch-action:none}
+#c{position:fixed;inset:0;width:100%;height:100%}
+#hearts{position:fixed;left:16px;top:calc(env(safe-area-inset-top,0px) + 14px);font-size:28px;letter-spacing:3px;text-shadow:0 2px 10px #0007;pointer-events:none}
+.h{color:#ff4d6d}.x{color:#ffffff40}
+#score{position:fixed;left:0;right:0;top:calc(env(safe-area-inset-top,0px) + 8px);text-align:center;font-size:60px;font-weight:900;text-shadow:0 4px 18px #0009;pointer-events:none}
+#hint{position:fixed;left:0;right:0;top:58%;text-align:center;font-size:20px;font-weight:800;letter-spacing:3px;display:none;pointer-events:none;animation:p 1s infinite alternate}
+@keyframes p{to{opacity:.35}}
+#ui{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:20px;pointer-events:none}
+.card{pointer-events:auto;touch-action:pan-y;width:min(340px,100%);max-height:100%;overflow:auto;padding:26px 20px;border-radius:28px;text-align:center;background:rgba(255,255,255,.13);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,.25);box-shadow:0 24px 60px #0006}
+h1,h2{margin:0 0 8px;font-weight:900}
+h1{font-size:44px;line-height:1;background:linear-gradient(135deg,#ffe259,#ff7a5c);-webkit-background-clip:text;background-clip:text;color:transparent}
+h2{font-size:26px}
+.big{font-size:68px;font-weight:900;line-height:1.1}
+p{margin:6px 0;opacity:.9}
+.b{display:block;width:100%;margin-top:12px;padding:15px;border:0;border-radius:16px;font-weight:700;font-size:17px;font-family:inherit;color:#2a1a00;background:linear-gradient(135deg,#ffe259,#ffa751);box-shadow:0 8px 22px #ffa75166}
+.b:active{transform:scale(.97)}
+.g{color:#fff;background:rgba(255,255,255,.16);box-shadow:none}
+.a{color:#fff;background:linear-gradient(135deg,#7f5af0,#2cb67d);box-shadow:0 8px 22px #7f5af066}
+.row{display:flex;justify-content:space-between;gap:10px;padding:10px 14px;margin:6px 0;border-radius:12px;background:rgba(255,255,255,.1);text-align:left}
+.row.me{background:rgba(255,226,89,.3)}
+#lb{max-height:46vh;overflow:auto;touch-action:pan-y}
+#toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom,0px) + 28px);transform:translate(-50%,30px);padding:11px 18px;border-radius:14px;background:#000a;font-weight:700;opacity:0;transition:.25s;pointer-events:none;white-space:nowrap}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hearts"></div><div id="score"></div><div id="hint">TAP TO FLY</div>
+<div id="ui"></div><div id="toast"></div>
+<script>
+// ===== الإعدادات =====
+const BLOCK_ID=''; // ضع هنا blockId من partner.adsgram.ai (فارغ = إعلان تجريبي للاختبار فقط)
+const DB_URL='';   // اختياري: رابط Firebase Realtime Database لقائمة لاعبين مشتركة (فارغ = قائمة محلية)
+
+const $=i=>document.getElementById(i),tg=window.Telegram&&Telegram.WebApp;
+if(tg){tg.ready();tg.expand();tg.disableVerticalSwipes&&tg.disableVerticalSwipes()}
+const L=(k,d)=>{try{const v=localStorage.getItem('fb_'+k);return v==null?d:JSON.parse(v)}catch(e){return d}};
+const S=(k,v)=>{try{localStorage.setItem('fb_'+k,JSON.stringify(v))}catch(e){}};
+const esc=s=>String(s).replace(/[&<>"']/g,c=>'&#'+c.charCodeAt(0)+';');
+const hf=(t,v)=>{try{tg.HapticFeedback[t](v)}catch(e){}};
+const u=tg&&tg.initDataUnsafe&&tg.initDataUnsafe.user;
+let uid=u?String(u.id):L('uid',null);
+if(!uid){uid='g'+Math.random().toString(36).slice(2,10);S('uid',uid)}
+const name=(u&&(u.username||u.first_name))||'Player';
+let hearts=L('hearts',3),best=L('best',0),ctl=null,busy=0,tt;
+
+// ===== اللعبة =====
+const ui=$('ui'),cv=$('c'),x=cv.getContext('2d'),H=640,G=70,PW=64,R=13;
+let sc=1,VW=360,st='home',bx=100,by=300,vy=0,pipes=[],score=0,dist=0,spd=2.6,fl=0,last=0;
+if(!x.roundRect)x.roundRect=function(a,b,c,d){this.rect(a,b,c,d)};
+const mk=(n,a,b)=>Array.from({length:n},()=>[22+Math.random()*28,a+Math.random()*(b-a)]);
+const c1=mk(24,70,170),c2=mk(24,35,110),stars=Array.from({length:45},()=>[Math.random(),Math.random(),Math.random()*1.4+.6]);
+function fit(){const d=devicePixelRatio||1;cv.width=innerWidth*d;cv.height=innerHeight*d;sc=innerHeight/H;VW=innerWidth/sc}
+addEventListener('resize',fit);fit();
+
+function city(a,f,col){const tw=a.reduce((s,b)=>s+b[0],0);let p=-(dist*f)%tw;x.fillStyle=col;while(p<VW)for(const b of a){x.fillRect(p,H-G-b[1],b[0]+1,b[1]);p+=b[0]}}
+function bg(t){
+ let q=x.createLinearGradient(0,0,0,H);q.addColorStop(0,'#150f3d');q.addColorStop(.5,'#5b2a86');q.addColorStop(1,'#ff7a5c');x.fillStyle=q;x.fillRect(0,0,VW,H);
+ x.fillStyle='#fff';for(const s of stars){x.globalAlpha=.35+.35*Math.sin(t/600+s[2]*20);x.fillRect(s[0]*VW,s[1]*H*.5,s[2],s[2])}x.globalAlpha=1;
+ q=x.createRadialGradient(VW*.72,H*.6,8,VW*.72,H*.6,190);q.addColorStop(0,'#ffe08a');q.addColorStop(.25,'#ffb36b88');q.addColorStop(1,'#ff7a5c00');x.fillStyle=q;x.fillRect(0,0,VW,H);
+ city(c1,.15,'#3d2275');city(c2,.4,'#1f1049')}
+function pipe(p){const t=p.gy-p.g/2,b=p.gy+p.g/2,q=x.createLinearGradient(p.x,0,p.x+PW,0);
+ q.addColorStop(0,'#10b890');q.addColorStop(.45,'#5cf0c4');q.addColorStop(1,'#0b8a70');x.fillStyle=q;
+ x.fillRect(p.x,-5,PW,t+5);x.fillRect(p.x,b,PW,H-b);
+ x.beginPath();x.roundRect(p.x-5,t-24,PW+10,24,7);x.roundRect(p.x-5,b,PW+10,24,7);x.fill()}
+function ground(){x.fillStyle='#120b33';x.fillRect(0,H-G,VW,G);x.fillStyle='#ff7a5c';x.fillRect(0,H-G,VW,3);
+ x.fillStyle='#ffffff14';for(let i=-1;i<VW/24+1;i++)x.fillRect(i*24-(dist%24),H-G+16,12,6)}
+function bird(){x.save();x.translate(bx,by);x.rotate(Math.max(-.5,Math.min(1.2,vy*.07)));
+ const q=x.createRadialGradient(-4,-5,2,0,0,18);q.addColorStop(0,'#fff59d');q.addColorStop(1,'#ffc400');
+ x.fillStyle=q;x.beginPath();x.arc(0,0,16,0,7);x.fill();
+ x.fillStyle='#ffa000';x.beginPath();x.ellipse(-5,4,9,5+Math.sin(fl)*3,-.35,0,7);x.fill();
+ x.fillStyle='#fff';x.beginPath();x.arc(7,-5,5.5,0,7);x.fill();
+ x.fillStyle='#111';x.beginPath();x.arc(9,-5,2.6,0,7);x.fill();
+ x.fillStyle='#ff6d00';x.beginPath();x.moveTo(13,0);x.lineTo(25,4);x.lineTo(13,8);x.fill();x.restore()}
+
+function hit(){st='dying';vy=Math.min(vy,2);hearts=Math.max(0,hearts-1);S('hearts',hearts);hr();hf('notificationOccurred','error');
+ if(score>best){best=score;S('best',best);save()}}
+function upd(dt,t){fl+=.4*dt;
+ if(st==='home'||st==='ready'){dist+=.8*dt;bx=VW*.28;by=H/2-40+Math.sin(t/260)*8;return}
+ if(st==='over')return;
+ if(st==='dying'){vy+=.55*dt;by+=vy*dt;if(by>=H-G-R){by=H-G-R;st='over';over()}return}
+ dist+=spd*dt;vy+=.42*dt;by+=vy*dt;if(by<R){by=R;vy=0}
+ spd=Math.min(4.4,2.6+score*.05);
+ const gap=Math.max(140,175-score*1.2),lp=pipes[pipes.length-1];
+ if(!lp||lp.x<VW-215){const lo=70+gap/2,hi=H-G-70-gap/2;
+  pipes.push({x:VW+20,g:gap,s:0,gy:Math.max(lo,Math.min(hi,(lp?lp.gy:H/2)+(Math.random()-.5)*320))})}
+ for(const p of pipes){p.x-=spd*dt;
+  if(!p.s&&p.x+PW<bx){p.s=1;score++;$('score').textContent=score}
+  if(bx+R>p.x&&bx-R<p.x+PW&&(by-R<p.gy-p.g/2||by+R>p.gy+p.g/2)){hit();return}}
+ pipes=pipes.filter(p=>p.x>-PW-10);
+ if(by>=H-G-R){by=H-G-R;hit()}}
+function loop(t){const dt=Math.min(2.2,(t-last)/16.67||1);last=t;upd(dt,t);
+ const d=devicePixelRatio||1;x.setTransform(d*sc,0,0,d*sc,0,0);bg(t);pipes.forEach(pipe);ground();bird();requestAnimationFrame(loop)}
+
+// ===== الإدخال =====
+function tap(){if(st==='ready'){st='play';$('hint').style.display='none'}if(st==='play'){vy=-7.3;hf('impactOccurred','light')}}
+addEventListener('pointerdown',e=>{if(!e.target.closest('.card'))tap()});
+addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();tap()}});
+
+// ===== الواجهة =====
+const hr=()=>{$('hearts').innerHTML=[0,1,2].map(i=>`<span class="${i<hearts?'h':'x'}">♥</span>`).join('')};
+const NO='<p>No hearts left!</p><button class="b a" data-a="ad">▶ Watch ad · get a heart</button>';
+function toast(m){const e=$('toast');e.textContent=m;e.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>e.classList.remove('on'),2300)}
+function home(){st='home';pipes=[];$('score').textContent='';$('hint').style.display='none';
+ ui.innerHTML=`<div class="card"><h1>FLAPPY<br>BIRD</h1><p>Best score: <b>${best}</b></p>${hearts>0?'<button class="b" data-a="play">Play</button>':NO}<button class="b g" data-a="board">🏆 Leaderboard</button></div>`}
+function over(){ui.innerHTML=`<div class="card"><h2>Game over</h2><div class="big">${score}</div><p>Best: <b>${best}</b></p>${hearts>0?'<button class="b" data-a="play">Play again</button>':NO}<button class="b g" data-a="board">🏆 Leaderboard</button><button class="b g" data-a="home">Home</button></div>`}
+function ready(){if(hearts<1)return;pipes=[];score=0;spd=2.6;vy=0;st='ready';ui.innerHTML='';$('score').textContent='0';$('hint').style.display='block'}
+
+// ===== إعلان Reward لاسترجاع قلب =====
+function ad(){if(busy)return;busy=1;
+ const done=()=>{hearts=Math.min(3,hearts+1);S('hearts',hearts);hr();toast('+1 ♥')};
+ const end=()=>{busy=0;st==='over'?over():home()};
+ if(!BLOCK_ID){toast('Demo ad (set BLOCK_ID)…');setTimeout(()=>{done();end()},2500);return}
+ if(!window.Adsgram){toast('Ads unavailable, try later');busy=0;return}
+ try{ctl=ctl||Adsgram.init({blockId:BLOCK_ID});
+  ctl.show().then(done).catch(()=>toast('Watch the full ad to get a heart')).finally(end)}
+ catch(e){toast('Ads unavailable, try later');busy=0}}
+
+// ===== قائمة اللاعبين =====
+function save(){const o=L('board',{});o[uid]={n:name,s:best};S('board',o);
+ DB_URL&&fetch(DB_URL+'/scores/'+uid+'.json',{method:'PUT',body:JSON.stringify({n:name,s:best})}).catch(()=>{})}
+async function board(){
+ ui.innerHTML='<div class="card"><h2>🏆 Top players</h2><div id="lb"><p>Loading…</p></div><button class="b g" data-a="back">Back</button></div>';
+ let o=L('board',{});
+ if(DB_URL){try{o=(await (await fetch(DB_URL+'/scores.json')).json())||{}}catch(e){}}
+ const a=Object.entries(o).map(([id,v])=>({id,n:v.n,s:v.s})).sort((p,q)=>q.s-p.s).slice(0,20);
+ const lb=$('lb');if(!lb)return;
+ lb.innerHTML=a.length?a.map((p,i)=>`<div class="row${p.id===uid?' me':''}"><span>${i<3?['🥇','🥈','🥉'][i]:(i+1)+'.'} ${esc(p.n)}</span><b>${esc(p.s)}</b></div>`).join(''):'<p>No scores yet</p>'}
+
+const act={play:ready,ad,board,home,back:()=>st==='over'?over():home()};
+ui.onclick=e=>{const b=e.target.closest('[data-a]');b&&act[b.dataset.a]()};
+hr();home();requestAnimationFrame(loop);
+</script>
+</body>
+</html>
